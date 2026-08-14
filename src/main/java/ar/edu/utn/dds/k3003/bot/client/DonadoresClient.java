@@ -6,10 +6,12 @@ import ar.edu.utn.dds.k3003.bot.dtos.EntidadBeneficaDTO;
 import ar.edu.utn.dds.k3003.bot.dtos.NecesidadMaterialDTO;
 
 import org.springframework.beans.factory.annotation.Value;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 
+import java.net.http.HttpClient;
+import java.time.Duration;
 import java.util.Arrays;
 import java.util.List;
 
@@ -21,11 +23,16 @@ public class DonadoresClient {
     private final RestClient restClient;
 
     public DonadoresClient(@Value("${donadores.url}") String baseUrl) {
-        // RestClient no tiene timeout por default: sin esto, si Donadores no responde el bot
-        // queda colgado indefinido en vez de degradar con un mensaje de error.
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(3000);
-        factory.setReadTimeout(5000);
+        // SimpleClientHttpRequestFactory (java.net.HttpURLConnection) NO soporta el método
+        // PATCH - tira ProtocolException antes de conectar, indistinguible de "no responde".
+        // JdkClientHttpRequestFactory (java.net.http.HttpClient, incluido desde Java 11) sí lo
+        // soporta. RestClient no tiene timeout por default: sin esto, si Donadores no responde
+        // el bot queda colgado indefinido en vez de degradar con un mensaje de error.
+        HttpClient httpClient = HttpClient.newBuilder()
+                .connectTimeout(Duration.ofSeconds(3))
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(httpClient);
+        factory.setReadTimeout(Duration.ofSeconds(5));
         this.restClient = RestClient.builder().baseUrl(baseUrl).requestFactory(factory).build();
     }
 
