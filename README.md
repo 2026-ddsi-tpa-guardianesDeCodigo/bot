@@ -46,6 +46,17 @@ export INCENTIVOS_URL=http://localhost:8082
 mvn spring-boot:run
 ```
 
+Alternativa más cómoda para uso local: creá un `.env` (ya está en `.gitignore`, **nunca se
+commitea**) con
+
+```
+TELEGRAM_BOT_TOKEN=tu_token
+TELEGRAM_BOT_USERNAME=tu_bot_username
+```
+
+y corré `./correr-local.sh`, que lo carga y levanta el bot. Como el bot nunca se despliega a
+Render, no hace falta configurar estas credenciales ahí.
+
 ## Uso
 
 En Telegram, hablarle al bot y mandar `/start`. Elegí con qué módulo querés hablar (Donadores y
