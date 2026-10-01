@@ -1,13 +1,17 @@
 package ar.edu.utn.dds.k3003.bot;
 
-import ar.edu.utn.dds.k3003.bot.client.DonadoresClient;
-import ar.edu.utn.dds.k3003.bot.dtos.DonadorDTO;
-import ar.edu.utn.dds.k3003.bot.dtos.DonadorStatsDTO;
-import ar.edu.utn.dds.k3003.bot.dtos.EntidadBeneficaDTO;
-import ar.edu.utn.dds.k3003.bot.dtos.EstadoDonadorEnum;
-import ar.edu.utn.dds.k3003.bot.dtos.NecesidadMaterialDTO;
+import ar.edu.utn.dds.k3003.bot.dtos.donaciones.EstadoDonacionEnum;
+import ar.edu.utn.dds.k3003.bot.dtos.donaciones.TipoIdentificadorEnum;
+import ar.edu.utn.dds.k3003.bot.dtos.incentivos.CategoriaDonadorEnum;
+import ar.edu.utn.dds.k3003.bot.dtos.incentivos.TipoMisionEnum;
+import ar.edu.utn.dds.k3003.bot.dtos.logistica.TipoAlgoritmoEnum;
 import ar.edu.utn.dds.k3003.bot.dtos.TipoNecesidadMaterialEnum;
+import ar.edu.utn.dds.k3003.bot.handler.DonacionesHandler;
+import ar.edu.utn.dds.k3003.bot.handler.DonadoresHandler;
+import ar.edu.utn.dds.k3003.bot.handler.IncentivosHandler;
+import ar.edu.utn.dds.k3003.bot.handler.LogisticaHandler;
 import ar.edu.utn.dds.k3003.bot.session.Accion;
+import ar.edu.utn.dds.k3003.bot.session.Modulo;
 import ar.edu.utn.dds.k3003.bot.session.SesionManager;
 import ar.edu.utn.dds.k3003.bot.session.SesionUsuario;
 import ar.edu.utn.dds.k3003.bot.session.TipoUsuario;
@@ -28,25 +32,36 @@ import org.telegram.telegrambots.meta.exceptions.TelegramApiException;
 
 import java.util.List;
 
-// Capa de presentación pura: solo habla por REST con Donadores y Entidades (vía
-// DonadoresClient), nunca con el dominio directo ni con los otros 3 componentes - mismo rol que
-// cumple el bot en la práctica Copia.me a partir de su 3ra iteración.
+// Capa de presentación pura: único punto de entrada de Telegram. Desde la Entrega 5 habla con
+// los 4 componentes (antes solo con Donadores y Entidades) - la ejecución de cada acción contra
+// su fachada vive en un handler por módulo (ar.edu.utn.dds.k3003.bot.handler), este componente
+// solo arma menús, valida campos de forma genérica y despacha al handler que corresponda según
+// Accion.getModulo().
 @Component
 public class DonaTrackBot extends TelegramLongPollingBot {
 
     private final String username;
-    private final DonadoresClient donadoresClient;
     private final SesionManager sesionManager;
+    private final DonadoresHandler donadoresHandler;
+    private final DonacionesHandler donacionesHandler;
+    private final LogisticaHandler logisticaHandler;
+    private final IncentivosHandler incentivosHandler;
 
     public DonaTrackBot(
             @Value("${telegram.bot.token}") String token,
             @Value("${telegram.bot.username}") String username,
-            DonadoresClient donadoresClient,
-            SesionManager sesionManager) {
+            SesionManager sesionManager,
+            DonadoresHandler donadoresHandler,
+            DonacionesHandler donacionesHandler,
+            LogisticaHandler logisticaHandler,
+            IncentivosHandler incentivosHandler) {
         super(token);
         this.username = username;
-        this.donadoresClient = donadoresClient;
         this.sesionManager = sesionManager;
+        this.donadoresHandler = donadoresHandler;
+        this.donacionesHandler = donacionesHandler;
+        this.logisticaHandler = logisticaHandler;
+        this.incentivosHandler = incentivosHandler;
     }
 
     @Override
@@ -72,18 +87,18 @@ public class DonaTrackBot extends TelegramLongPollingBot {
 
         if (texto.equalsIgnoreCase("/start")) {
             sesionManager.reiniciar(chatId);
-            enviarSeleccionTipo(chatId);
+            enviarSeleccionModulo(chatId);
             return;
         }
         if (texto.equalsIgnoreCase("/menu")) {
             sesion.finalizarAccion();
-            enviarMenuOSeleccionTipo(chatId, sesion);
+            enviarMenuOSeleccion(chatId, sesion);
             return;
         }
         if (texto.equalsIgnoreCase("/cancelar")) {
             sesion.finalizarAccion();
             enviarTexto(chatId, "Cancelado.");
-            enviarMenuOSeleccionTipo(chatId, sesion);
+            enviarMenuOSeleccion(chatId, sesion);
             return;
         }
 
@@ -108,7 +123,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
         String resultado = ejecutarAccion(sesion);
         sesion.finalizarAccion();
         enviarTexto(chatId, resultado);
-        enviarMenuOSeleccionTipo(chatId, sesion);
+        enviarMenuOSeleccion(chatId, sesion);
     }
 
     // ---- Manejo de botones ----
@@ -124,10 +139,22 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             // Solo apaga el "cargando..." del botón - no es crítico si falla.
         }
 
+        if (data.startsWith("modulo:")) {
+            Modulo modulo = Modulo.valueOf(data.substring("modulo:".length()));
+            sesion.setModulo(modulo);
+            sesion.setTipoUsuario(null);
+            if (modulo == Modulo.DONADORES) {
+                enviarSeleccionTipo(chatId);
+            } else {
+                enviarMenu(chatId, sesion);
+            }
+            return;
+        }
+
         if (data.startsWith("tipo:")) {
             TipoUsuario tipo = TipoUsuario.valueOf(data.substring("tipo:".length()));
             sesion.setTipoUsuario(tipo);
-            enviarMenu(chatId, tipo);
+            enviarMenu(chatId, sesion);
             return;
         }
 
@@ -138,157 +165,177 @@ public class DonaTrackBot extends TelegramLongPollingBot {
                 String resultado = ejecutarAccion(sesion);
                 sesion.finalizarAccion();
                 enviarTexto(chatId, resultado);
-                enviarMenuOSeleccionTipo(chatId, sesion);
+                enviarMenuOSeleccion(chatId, sesion);
             } else {
                 enviarTexto(chatId, sesion.campoActual() + ":");
             }
         }
     }
 
-    // ---- Validación simple de campos numéricos / enum ----
+    // ---- Validación simple de campos numéricos / enum, genérica para los 4 módulos ----
 
     private String validar(String campo, String valor) {
-        switch (campo) {
-            case "Edad":
-            case "Nivel de urgencia (1-10)":
-            case "Cantidad objetivo":
-                try {
+        try {
+            switch (campo) {
+                case "Edad":
+                case "Nivel de urgencia (1-10)":
+                case "Cantidad objetivo":
+                case "Cantidad a donar":
+                case "Cantidad entregada":
+                case "Capacidad máxima":
                     Integer.parseInt(valor.trim());
-                } catch (NumberFormatException e) {
-                    return "Eso no es un número válido. Probá de nuevo - " + campo + ":";
-                }
-                return null;
-            case "Tipo (EXTRAORDINARIA o RECURRENTE)":
-                try {
+                    return null;
+                case "ID de la donación":
+                case "ID del producto (Donaciones)":
+                case "ID de categoría":
+                case "ID de identificador":
+                    Long.parseLong(valor.trim());
+                    return null;
+                case "Tipo (EXTRAORDINARIA o RECURRENTE)":
                     TipoNecesidadMaterialEnum.valueOf(valor.trim().toUpperCase());
-                } catch (IllegalArgumentException e) {
-                    return "Tiene que ser EXTRAORDINARIA o RECURRENTE. Probá de nuevo:";
-                }
-                return null;
-            default:
-                return null;
+                    return null;
+                case "Nuevo estado (INGRESADA, ACEPTADA o CONQUEJA)":
+                    EstadoDonacionEnum.valueOf(valor.trim().toUpperCase());
+                    return null;
+                case "Tipo (QR o CODIGODEBARRAS)":
+                    TipoIdentificadorEnum.valueOf(valor.trim().toUpperCase());
+                    return null;
+                case "Algoritmo (SUB_ATENDIDOS o PRIORIDAD_POR_SCORE)":
+                    TipoAlgoritmoEnum.valueOf(valor.trim().toUpperCase());
+                    return null;
+                case "Categoría inicio (OCASIONAL, COLABORADOR, TRANSFORMADOR, SALVADOR o REVOLUCIONARIO)":
+                case "Categoría fin (OCASIONAL, COLABORADOR, TRANSFORMADOR, SALVADOR o REVOLUCIONARIO)":
+                    CategoriaDonadorEnum.valueOf(valor.trim().toUpperCase());
+                    return null;
+                case "Tipo (COMPLETITUD, DONACIONES_EXITOSAS, DONACIONES_ASCENDENTES o REVOLUCION_DONADORA)":
+                    TipoMisionEnum.valueOf(valor.trim().toUpperCase());
+                    return null;
+                default:
+                    return null;
+            }
+        } catch (IllegalArgumentException e) {
+            return "Ese valor no es válido para \"" + campo + "\". Probá de nuevo - " + campo + ":";
         }
     }
 
-    // ---- Ejecución de la acción contra Donadores y Entidades ----
+    // ---- Ejecución de la acción, despachando al handler del módulo que corresponda ----
 
     private String ejecutarAccion(SesionUsuario sesion) {
         Accion accion = sesion.getAccionActual();
         try {
-            switch (accion) {
-                case REGISTRAR_DONADOR -> {
-                    DonadorDTO nuevo = new DonadorDTO(null,
-                            sesion.getRespuesta("Nombre"), sesion.getRespuesta("Apellido"),
-                            Integer.parseInt(sesion.getRespuesta("Edad")), sesion.getRespuesta("Email"),
-                            sesion.getRespuesta("Número de documento"), sesion.getRespuesta("Domicilio"),
-                            EstadoDonadorEnum.VERIFICADO, "OCASIONAL");
-                    return "Listo, te registré:\n" + formatDonador(donadoresClient.agregarDonador(nuevo));
-                }
-                case MIS_ESTADISTICAS -> {
-                    return formatStats(donadoresClient.estadisticasDonador(sesion.getRespuesta("Tu ID de donador")));
-                }
-                case BUSCAR_DONADOR -> {
-                    return formatDonador(donadoresClient.buscarDonadorPorID(sesion.getRespuesta("ID del donador a buscar")));
-                }
-                case LISTAR_DONADORES -> {
-                    return formatListaDonadores(donadoresClient.obtenerDonadores());
-                }
-                case CREAR_ENTIDAD -> {
-                    EntidadBeneficaDTO nueva = new EntidadBeneficaDTO(null,
-                            sesion.getRespuesta("Razón social"), sesion.getRespuesta("Domicilio"),
-                            sesion.getRespuesta("Teléfono"), sesion.getRespuesta("Correo"));
-                    return "Entidad creada:\n" + formatEntidad(donadoresClient.agregarEntidad(nueva));
-                }
-                case EDITAR_ENTIDAD -> {
-                    String id = sesion.getRespuesta("ID de la entidad a editar");
-                    EntidadBeneficaDTO editada = new EntidadBeneficaDTO(id,
-                            sesion.getRespuesta("Razón social"), sesion.getRespuesta("Domicilio"),
-                            sesion.getRespuesta("Teléfono"), sesion.getRespuesta("Correo"));
-                    return "Entidad editada:\n" + formatEntidad(donadoresClient.editarEntidad(id, editada));
-                }
-                case BUSCAR_ENTIDAD -> {
-                    return formatEntidad(donadoresClient.buscarEntidadPorID(sesion.getRespuesta("ID de la entidad a buscar")));
-                }
-                case LISTAR_ENTIDADES -> {
-                    return formatListaEntidades(donadoresClient.obtenerEntidades());
-                }
-                case ALTA_NECESIDAD -> {
-                    NecesidadMaterialDTO nueva = new NecesidadMaterialDTO(null,
-                            sesion.getRespuesta("ID de la entidad"),
-                            Integer.parseInt(sesion.getRespuesta("Nivel de urgencia (1-10)")),
-                            sesion.getRespuesta("Descripción"),
-                            Integer.parseInt(sesion.getRespuesta("Cantidad objetivo")),
-                            sesion.getRespuesta("ID del producto solicitado"),
-                            TipoNecesidadMaterialEnum.valueOf(
-                                    sesion.getRespuesta("Tipo (EXTRAORDINARIA o RECURRENTE)").trim().toUpperCase()));
-                    return "Necesidad creada:\n" + formatNecesidad(donadoresClient.registrarNecesidad(nueva));
-                }
-                case MODIFICAR_NECESIDAD -> {
-                    String id = sesion.getRespuesta("ID de la necesidad a modificar");
-                    NecesidadMaterialDTO editada = new NecesidadMaterialDTO(id,
-                            sesion.getRespuesta("ID de la entidad"),
-                            Integer.parseInt(sesion.getRespuesta("Nivel de urgencia (1-10)")),
-                            sesion.getRespuesta("Descripción"),
-                            Integer.parseInt(sesion.getRespuesta("Cantidad objetivo")),
-                            sesion.getRespuesta("ID del producto solicitado"),
-                            TipoNecesidadMaterialEnum.valueOf(
-                                    sesion.getRespuesta("Tipo (EXTRAORDINARIA o RECURRENTE)").trim().toUpperCase()));
-                    return "Necesidad modificada:\n" + formatNecesidad(donadoresClient.editarNecesidad(id, editada));
-                }
-                case BORRAR_NECESIDAD -> {
-                    String id = sesion.getRespuesta("ID de la necesidad a borrar");
-                    donadoresClient.borrarNecesidad(id);
-                    return "Necesidad " + id + " borrada.";
-                }
-                case BUSCAR_NECESIDAD -> {
-                    return formatNecesidad(donadoresClient.buscarNecesidadPorID(sesion.getRespuesta("ID de la necesidad a buscar")));
-                }
-                default -> {
-                    return "Acción no soportada.";
-                }
-            }
+            return switch (accion.getModulo()) {
+                case DONADORES -> donadoresHandler.ejecutar(accion, sesion);
+                case DONACIONES -> donacionesHandler.ejecutar(accion, sesion);
+                case LOGISTICA -> logisticaHandler.ejecutar(accion, sesion);
+                case INCENTIVOS -> incentivosHandler.ejecutar(accion, sesion);
+            };
         } catch (RestClientResponseException e) {
-            return "Donadores y Entidades respondió con error (" + e.getStatusCode().value() + "): "
+            return nombreServicio(accion.getModulo()) + " respondió con error (" + e.getStatusCode().value() + "): "
                     + e.getResponseBodyAsString();
         } catch (RestClientException e) {
-            return "No pude conectarme con Donadores y Entidades. ¿Está levantado el servicio?";
+            return "No pude conectarme con " + nombreServicio(accion.getModulo()) + ". ¿Está levantado el servicio?";
         }
+    }
+
+    private String nombreServicio(Modulo modulo) {
+        return switch (modulo) {
+            case DONADORES -> "Donadores y Entidades";
+            case DONACIONES -> "Donaciones";
+            case LOGISTICA -> "Logística";
+            case INCENTIVOS -> "Incentivos";
+        };
     }
 
     // ---- Menús ----
 
-    private void enviarMenuOSeleccionTipo(Long chatId, SesionUsuario sesion) {
-        if (sesion.getTipoUsuario() == null) {
+    private void enviarMenuOSeleccion(Long chatId, SesionUsuario sesion) {
+        if (sesion.getModulo() == null) {
+            enviarSeleccionModulo(chatId);
+        } else if (sesion.getModulo() == Modulo.DONADORES && sesion.getTipoUsuario() == null) {
             enviarSeleccionTipo(chatId);
         } else {
-            enviarMenu(chatId, sesion.getTipoUsuario());
+            enviarMenu(chatId, sesion);
         }
+    }
+
+    private void enviarSeleccionModulo(Long chatId) {
+        InlineKeyboardMarkup teclado = new InlineKeyboardMarkup(List.of(
+                List.of(boton("Donadores y Entidades", "modulo:DONADORES")),
+                List.of(boton("Donaciones", "modulo:DONACIONES")),
+                List.of(boton("Logística", "modulo:LOGISTICA")),
+                List.of(boton("Incentivos", "modulo:INCENTIVOS"))));
+        enviarConTeclado(chatId, "¡Hola! Soy el bot de DonaTrack. ¿Con qué módulo querés hablar?", teclado);
     }
 
     private void enviarSeleccionTipo(Long chatId) {
         InlineKeyboardMarkup teclado = new InlineKeyboardMarkup(List.of(
                 List.of(boton("Soy Donador", "tipo:DONADOR")),
                 List.of(boton("Soy Admin", "tipo:ADMIN"))));
-        enviarConTeclado(chatId, "¡Hola! Soy el bot de DonaTrack. ¿Cómo querés entrar?", teclado);
+        enviarConTeclado(chatId, "¿Cómo querés entrar a Donadores y Entidades?", teclado);
     }
 
-    private void enviarMenu(Long chatId, TipoUsuario tipo) {
-        InlineKeyboardMarkup teclado = tipo == TipoUsuario.DONADOR
-                ? new InlineKeyboardMarkup(List.of(
-                        List.of(boton("Registrarme", "accion:REGISTRAR_DONADOR")),
-                        List.of(boton("Mis estadísticas", "accion:MIS_ESTADISTICAS")),
-                        List.of(boton("Buscar donador por ID", "accion:BUSCAR_DONADOR")),
-                        List.of(boton("Listar donadores", "accion:LISTAR_DONADORES"))))
-                : new InlineKeyboardMarkup(List.of(
-                        List.of(boton("Crear entidad", "accion:CREAR_ENTIDAD")),
-                        List.of(boton("Editar entidad", "accion:EDITAR_ENTIDAD")),
-                        List.of(boton("Buscar entidad por ID", "accion:BUSCAR_ENTIDAD")),
-                        List.of(boton("Listar entidades", "accion:LISTAR_ENTIDADES")),
-                        List.of(boton("Alta de necesidad", "accion:ALTA_NECESIDAD")),
-                        List.of(boton("Modificar necesidad", "accion:MODIFICAR_NECESIDAD")),
-                        List.of(boton("Borrar necesidad", "accion:BORRAR_NECESIDAD")),
-                        List.of(boton("Buscar necesidad por ID", "accion:BUSCAR_NECESIDAD"))));
+    private void enviarMenu(Long chatId, SesionUsuario sesion) {
+        InlineKeyboardMarkup teclado = switch (sesion.getModulo()) {
+            case DONADORES -> sesion.getTipoUsuario() == TipoUsuario.DONADOR ? menuDonadoresDonador() : menuDonadoresAdmin();
+            case DONACIONES -> menuDonaciones();
+            case LOGISTICA -> menuLogistica();
+            case INCENTIVOS -> menuIncentivos();
+        };
         enviarConTeclado(chatId, "¿Qué querés hacer?", teclado);
+    }
+
+    private InlineKeyboardMarkup menuDonadoresDonador() {
+        return new InlineKeyboardMarkup(List.of(
+                List.of(boton("Registrarme", "accion:REGISTRAR_DONADOR")),
+                List.of(boton("Mis estadísticas", "accion:MIS_ESTADISTICAS")),
+                List.of(boton("Buscar donador por ID", "accion:BUSCAR_DONADOR")),
+                List.of(boton("Listar donadores", "accion:LISTAR_DONADORES"))));
+    }
+
+    private InlineKeyboardMarkup menuDonadoresAdmin() {
+        return new InlineKeyboardMarkup(List.of(
+                List.of(boton("Crear entidad", "accion:CREAR_ENTIDAD")),
+                List.of(boton("Editar entidad", "accion:EDITAR_ENTIDAD")),
+                List.of(boton("Buscar entidad por ID", "accion:BUSCAR_ENTIDAD")),
+                List.of(boton("Listar entidades", "accion:LISTAR_ENTIDADES")),
+                List.of(boton("Alta de necesidad", "accion:ALTA_NECESIDAD")),
+                List.of(boton("Modificar necesidad", "accion:MODIFICAR_NECESIDAD")),
+                List.of(boton("Borrar necesidad", "accion:BORRAR_NECESIDAD")),
+                List.of(boton("Buscar necesidad por ID", "accion:BUSCAR_NECESIDAD"))));
+    }
+
+    private InlineKeyboardMarkup menuDonaciones() {
+        return new InlineKeyboardMarkup(List.of(
+                List.of(boton("Registrar donación", "accion:REGISTRAR_DONACION")),
+                List.of(boton("Consultar donación por ID", "accion:CONSULTAR_DONACION")),
+                List.of(boton("Listar donaciones", "accion:LISTAR_DONACIONES")),
+                List.of(boton("Listar donaciones de un donador", "accion:LISTAR_DONACIONES_DE_DONADOR")),
+                List.of(boton("Cambiar estado de donación", "accion:CAMBIAR_ESTADO_DONACION")),
+                List.of(boton("Registrar queja en donación", "accion:REGISTRAR_QUEJA_DONACION")),
+                List.of(boton("Crear producto", "accion:CREAR_PRODUCTO")),
+                List.of(boton("Listar productos", "accion:LISTAR_PRODUCTOS")),
+                List.of(boton("Crear categoría", "accion:CREAR_CATEGORIA")),
+                List.of(boton("Crear identificador", "accion:CREAR_IDENTIFICADOR"))));
+    }
+
+    private InlineKeyboardMarkup menuLogistica() {
+        return new InlineKeyboardMarkup(List.of(
+                List.of(boton("Crear depósito", "accion:CREAR_DEPOSITO")),
+                List.of(boton("Listar depósitos", "accion:LISTAR_DEPOSITOS")),
+                List.of(boton("Buscar depósito por ID", "accion:BUSCAR_DEPOSITO")),
+                List.of(boton("Configurar algoritmo de un depósito", "accion:CONFIGURAR_ALGORITMO")),
+                List.of(boton("Consultar stock de un producto", "accion:CONSULTAR_STOCK")),
+                List.of(boton("Listar asignaciones", "accion:LISTAR_ASIGNACIONES")),
+                List.of(boton("Reportar entrega de un paquete", "accion:REPORTAR_ENTREGA"))));
+    }
+
+    private InlineKeyboardMarkup menuIncentivos() {
+        return new InlineKeyboardMarkup(List.of(
+                List.of(boton("Crear misión", "accion:CREAR_MISION")),
+                List.of(boton("Crear insignia", "accion:CREAR_INSIGNIA")),
+                List.of(boton("Asignar misión a donador", "accion:ASIGNAR_MISION")),
+                List.of(boton("Procesar donador", "accion:PROCESAR_DONADOR")),
+                List.of(boton("Consultar progreso de un donador", "accion:CONSULTAR_PROGRESO"))));
     }
 
     private InlineKeyboardButton boton(String texto, String callbackData) {
@@ -320,52 +367,5 @@ public class DonaTrackBot extends TelegramLongPollingBot {
         } catch (TelegramApiException e) {
             e.printStackTrace();
         }
-    }
-
-    // ---- Formateo de respuestas ----
-
-    private String formatDonador(DonadorDTO d) {
-        return "ID: " + d.id() + "\nNombre: " + d.nombre() + " " + d.apellido()
-                + "\nEdad: " + d.edad() + "\nEmail: " + d.email()
-                + "\nEstado: " + d.estado() + "\nCategoría: " + d.categoria();
-    }
-
-    private String formatListaDonadores(List<DonadorDTO> donadores) {
-        if (donadores.isEmpty()) return "No hay donadores registrados todavía.";
-        StringBuilder sb = new StringBuilder();
-        for (DonadorDTO d : donadores) {
-            sb.append("• ").append(d.id()).append(" - ").append(d.nombre()).append(" ")
-                    .append(d.apellido()).append(" (").append(d.categoria()).append(")\n");
-        }
-        return sb.toString();
-    }
-
-    private String formatStats(DonadorStatsDTO s) {
-        return "Nombre: " + s.nombre() + " " + s.apellido()
-                + "\nEstado: " + s.estado() + "\nCategoría: " + s.categoria()
-                + "\nMisión actual: " + (s.misionActualID() != null ? s.misionActualID() : "ninguna")
-                + "\nInsignias: " + (s.insigniasID().isEmpty() ? "ninguna" : String.join(", ", s.insigniasID()));
-    }
-
-    private String formatEntidad(EntidadBeneficaDTO e) {
-        return "ID: " + e.id() + "\nRazón social: " + e.razonSocial()
-                + "\nDomicilio: " + e.domicilio() + "\nTeléfono: " + e.telefono()
-                + "\nCorreo: " + e.correo();
-    }
-
-    private String formatListaEntidades(List<EntidadBeneficaDTO> entidades) {
-        if (entidades.isEmpty()) return "No hay entidades registradas todavía.";
-        StringBuilder sb = new StringBuilder();
-        for (EntidadBeneficaDTO e : entidades) {
-            sb.append("• ").append(e.id()).append(" - ").append(e.razonSocial()).append("\n");
-        }
-        return sb.toString();
-    }
-
-    private String formatNecesidad(NecesidadMaterialDTO n) {
-        return "ID: " + n.id() + "\nEntidad: " + n.entidadID()
-                + "\nUrgencia: " + n.nivelDeUrgencia() + "\nDescripción: " + n.descripcion()
-                + "\nProducto solicitado: " + n.productoSolicitadoID()
-                + "\nCantidad objetivo: " + n.cantidadObjetivo() + "\nTipo: " + n.tipo();
     }
 }

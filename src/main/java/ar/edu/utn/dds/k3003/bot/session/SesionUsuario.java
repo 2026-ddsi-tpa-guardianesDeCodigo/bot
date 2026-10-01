@@ -8,10 +8,19 @@ import java.util.Map;
 // (CLAUDE.md §8.4).
 public class SesionUsuario {
 
+    private Modulo modulo;
     private TipoUsuario tipoUsuario;
     private Accion accionActual;
     private int indiceCampoActual;
     private final Map<String, String> respuestas = new LinkedHashMap<>();
+
+    public Modulo getModulo() {
+        return modulo;
+    }
+
+    public void setModulo(Modulo modulo) {
+        this.modulo = modulo;
+    }
 
     public TipoUsuario getTipoUsuario() {
         return tipoUsuario;
