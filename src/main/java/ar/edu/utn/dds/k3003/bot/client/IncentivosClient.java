@@ -43,6 +43,13 @@ public class IncentivosClient {
                 .body(insignia).retrieve().body(InsigniaDTO.class);
     }
 
+    // Usado para verificar existencia antes de confirmar un alta que referencia una insignia (bot,
+    // ver DonaTrackBot#verificarExistencia).
+    public InsigniaDTO buscarInsigniaPorID(String id) {
+        return restClient.get().uri("/insignias/{id}", id)
+                .retrieve().body(InsigniaDTO.class);
+    }
+
     public void asignarMisionADonador(String donadorID, MisionDTO mision) {
         restClient.post().uri("/donadores/{id}/misiones", donadorID)
                 .body(mision).retrieve().toBodilessEntity();

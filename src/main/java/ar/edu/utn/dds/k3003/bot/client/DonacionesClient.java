@@ -76,13 +76,30 @@ public class DonacionesClient {
         return Arrays.asList(resultado);
     }
 
+    // Usado para verificar existencia antes de confirmar un alta que referencia un producto (bot,
+    // ver DonaTrackBot#verificarExistencia) - no solo para mostrarlo.
+    public ProductoDTO buscarProductoPorID(Long id) {
+        return restClient.get().uri("/productos/{id}", id)
+                .retrieve().body(ProductoDTO.class);
+    }
+
     public CategoriaDTO crearCategoria(CategoriaDTO categoria) {
         return restClient.post().uri("/categorias")
                 .body(categoria).retrieve().body(CategoriaDTO.class);
     }
 
+    public CategoriaDTO buscarCategoriaPorID(Long id) {
+        return restClient.get().uri("/categorias/{id}", id)
+                .retrieve().body(CategoriaDTO.class);
+    }
+
     public IdentificadorDTO crearIdentificador(IdentificadorDTO identificador) {
         return restClient.post().uri("/identificadores")
                 .body(identificador).retrieve().body(IdentificadorDTO.class);
+    }
+
+    public IdentificadorDTO buscarIdentificadorPorID(Long id) {
+        return restClient.get().uri("/identificadores/{id}", id)
+                .retrieve().body(IdentificadorDTO.class);
     }
 }
