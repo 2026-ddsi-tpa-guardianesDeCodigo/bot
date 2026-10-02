@@ -6,6 +6,10 @@ import ar.edu.utn.dds.k3003.bot.dtos.incentivos.CategoriaDonadorEnum;
 import ar.edu.utn.dds.k3003.bot.dtos.incentivos.TipoMisionEnum;
 import ar.edu.utn.dds.k3003.bot.dtos.logistica.TipoAlgoritmoEnum;
 import ar.edu.utn.dds.k3003.bot.dtos.TipoNecesidadMaterialEnum;
+import ar.edu.utn.dds.k3003.bot.client.DonacionesClient;
+import ar.edu.utn.dds.k3003.bot.client.DonadoresClient;
+import ar.edu.utn.dds.k3003.bot.client.IncentivosClient;
+import ar.edu.utn.dds.k3003.bot.client.LogisticaClient;
 import ar.edu.utn.dds.k3003.bot.handler.DonacionesHandler;
 import ar.edu.utn.dds.k3003.bot.handler.DonadoresHandler;
 import ar.edu.utn.dds.k3003.bot.handler.IncentivosHandler;
@@ -46,6 +50,14 @@ public class DonaTrackBot extends TelegramLongPollingBot {
     private final DonacionesHandler donacionesHandler;
     private final LogisticaHandler logisticaHandler;
     private final IncentivosHandler incentivosHandler;
+    // Clientes HTTP inyectados acá (además de en los handlers) para el chequeo de existencia de
+    // §verificarExistencia: ese chequeo es transversal a los 4 módulos (ej. "ID del producto
+    // solicitado" se pide en el módulo Donadores pero el producto vive en Donaciones), así que no
+    // encaja en ningún handler de un solo módulo.
+    private final DonadoresClient donadoresClient;
+    private final DonacionesClient donacionesClient;
+    private final LogisticaClient logisticaClient;
+    private final IncentivosClient incentivosClient;
 
     public DonaTrackBot(
             @Value("${telegram.bot.token}") String token,
@@ -54,7 +66,11 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             DonadoresHandler donadoresHandler,
             DonacionesHandler donacionesHandler,
             LogisticaHandler logisticaHandler,
-            IncentivosHandler incentivosHandler) {
+            IncentivosHandler incentivosHandler,
+            DonadoresClient donadoresClient,
+            DonacionesClient donacionesClient,
+            LogisticaClient logisticaClient,
+            IncentivosClient incentivosClient) {
         super(token);
         this.username = username;
         this.sesionManager = sesionManager;
@@ -62,6 +78,10 @@ public class DonaTrackBot extends TelegramLongPollingBot {
         this.donacionesHandler = donacionesHandler;
         this.logisticaHandler = logisticaHandler;
         this.incentivosHandler = incentivosHandler;
+        this.donadoresClient = donadoresClient;
+        this.donacionesClient = donacionesClient;
+        this.logisticaClient = logisticaClient;
+        this.incentivosClient = incentivosClient;
     }
 
     @Override
@@ -109,6 +129,9 @@ public class DonaTrackBot extends TelegramLongPollingBot {
 
         String campoActual = sesion.campoActual();
         String error = validar(campoActual, texto);
+        if (error == null) {
+            error = verificarExistencia(campoActual, texto);
+        }
         if (error != null) {
             enviarTexto(chatId, error);
             return;
@@ -187,6 +210,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
                     return null;
                 case "ID de la donación":
                 case "ID del producto (Donaciones)":
+                case "ID del producto solicitado":
                 case "ID de categoría":
                 case "ID de identificador":
                     Long.parseLong(valor.trim());
@@ -215,6 +239,63 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             }
         } catch (IllegalArgumentException e) {
             return "Ese valor no es válido para \"" + campo + "\". Probá de nuevo - " + campo + ":";
+        }
+    }
+
+    // ---- Verificación de existencia contra el componente dueño del dato, campo por campo ----
+    //
+    // Antes de este chequeo, un ID que no existía (ej. un producto inexistente al dar de alta una
+    // necesidad) recién se detectaba al ejecutar la acción, al final del formulario - obligando a
+    // recargar todos los campos de nuevo. Acá se corta apenas se escribe ese campo puntual, igual
+    // que validar() pero yendo a buscar el dato real en vez de solo chequear formato/enum.
+    //
+    // Solo bloquea en un 404 confirmado (no existe). Cualquier otro error (el servicio no responde,
+    // 5xx, cold start de Render que agota el timeout) se deja pasar sin bloquear: ya degrada al
+    // mensaje de "no pude conectarme con..." de ejecutarAccion si el problema persiste, en vez de
+    // trabarle el alta a un usuario por una falla de infraestructura ajena al dato que cargó.
+    private String verificarExistencia(String campo, String valor) {
+        String v = valor.trim();
+        try {
+            switch (campo) {
+                case "ID de la entidad", "ID de la entidad a editar" ->
+                        donadoresClient.buscarEntidadPorID(v);
+                case "ID de la necesidad a modificar" ->
+                        donadoresClient.buscarNecesidadPorID(v);
+                case "ID del donador" ->
+                        donadoresClient.buscarDonadorPorID(v);
+                case "ID del producto solicitado", "ID del producto (Donaciones)" ->
+                        donacionesClient.buscarProductoPorID(Long.parseLong(v));
+                case "ID de categoría" ->
+                        donacionesClient.buscarCategoriaPorID(Long.parseLong(v));
+                case "ID de identificador" ->
+                        donacionesClient.buscarIdentificadorPorID(Long.parseLong(v));
+                case "ID de la donación" ->
+                        donacionesClient.buscarDonacionPorID(Long.parseLong(v));
+                case "ID del depósito" ->
+                        logisticaClient.buscarDepositoPorID(v);
+                case "ID de la insignia" ->
+                        incentivosClient.buscarInsigniaPorID(v);
+                case "ID de la siguiente misión (o - si no hay)" -> {
+                    if (!"-".equals(v)) incentivosClient.buscarMisionPorID(v);
+                }
+                default -> {
+                    // nada que verificar: campo de texto libre, numérico sin referencia a otra
+                    // entidad, o un ID que esta misma acción va a crear (no a buscar).
+                }
+            }
+            return null;
+        } catch (NumberFormatException e) {
+            // Ya lo habría atajado validar() para los campos que valida como Long; por las dudas
+            // (ej. si se agrega un campo acá sin agregarlo también ahí) no se bloquea un formato
+            // inválido con un mensaje de "no existe" engañoso.
+            return null;
+        } catch (RestClientResponseException e) {
+            if (e.getStatusCode().value() != 404) {
+                return null;
+            }
+            return "No existe ningún registro con \"" + campo + "\" = " + v + ". Probá de nuevo - " + campo + ":";
+        } catch (RestClientException e) {
+            return null;
         }
     }
 
