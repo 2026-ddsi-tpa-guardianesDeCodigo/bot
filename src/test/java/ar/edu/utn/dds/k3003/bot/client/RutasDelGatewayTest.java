@@ -26,7 +26,8 @@ import org.springframework.test.context.DynamicPropertySource;
             DonadoresClient.class,
             DonacionesClient.class,
             LogisticaClient.class,
-            IncentivosClient.class
+            IncentivosClient.class,
+            ConsultasClient.class
         },
         webEnvironment = SpringBootTest.WebEnvironment.NONE)
 class RutasDelGatewayTest {
@@ -46,13 +47,16 @@ class RutasDelGatewayTest {
     @Autowired
     private IncentivosClient incentivos;
 
+    @Autowired
+    private ConsultasClient consultas;
+
     @DynamicPropertySource
     static void gateway(DynamicPropertyRegistry registro) throws IOException {
         gateway = HttpServer.create(new InetSocketAddress("localhost", 0), 0);
         gateway.createContext("/", intercambio -> {
             RUTAS.add(intercambio.getRequestURI().toString());
             String ruta = intercambio.getRequestURI().getPath();
-            byte[] cuerpo = (ruta.endsWith("/1") ? "{}" : "[]").getBytes(StandardCharsets.UTF_8);
+            byte[] cuerpo = (ruta.endsWith("/1") || ruta.contains("/consultas/") ? "{}" : "[]").getBytes(StandardCharsets.UTF_8);
             intercambio.getResponseHeaders().set("Content-Type", "application/json");
             intercambio.sendResponseHeaders(200, cuerpo.length);
             intercambio.getResponseBody().write(cuerpo);
@@ -78,13 +82,17 @@ class RutasDelGatewayTest {
         donaciones.listarDonaciones();
         logistica.listarDepositos();
         incentivos.buscarMisionPorID("1");
+        consultas.fichaDonador("1");
+        consultas.necesidadesUrgentes(7);
 
         assertEquals(
                 List.of(
                         "/api/donadores-entidades/donadores/1",
                         "/api/donaciones/donaciones",
                         "/api/logistica/depositos",
-                        "/api/incentivos/misiones/1"),
+                        "/api/incentivos/misiones/1",
+                        "/api/consultas/donadores/1/ficha",
+                        "/api/consultas/necesidades/urgentes?urgenciaMin=7&size=10"),
                 List.copyOf(RUTAS));
     }
 }

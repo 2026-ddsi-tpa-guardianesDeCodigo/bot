@@ -59,7 +59,13 @@ public enum Accion {
     CREAR_INSIGNIA(Modulo.INCENTIVOS, "Nombre de la insignia", "Descripción de la insignia"),
     ASIGNAR_MISION(Modulo.INCENTIVOS, "ID del donador", "ID de la misión a asignar"),
     PROCESAR_DONADOR(Modulo.INCENTIVOS, "ID del donador a procesar"),
-    CONSULTAR_PROGRESO(Modulo.INCENTIVOS, "ID del donador");
+    CONSULTAR_PROGRESO(Modulo.INCENTIVOS, "ID del donador"),
+
+    // ---- Consultas (modelo de lectura, Entrega 6) ----
+    // El ID va con otra etiqueta que "ID del donador": la ficha sale de Consultas y no tiene que
+    // pasar por la verificación de existencia contra Donadores.
+    FICHA_DONADOR(Modulo.CONSULTAS, "ID del donador para la ficha"),
+    NECESIDADES_URGENTES(Modulo.CONSULTAS, "Urgencia mínima (1-10)");
 
     private final Modulo modulo;
     private final String[] campos;

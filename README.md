@@ -83,6 +83,10 @@ Entidades, Donaciones, Logística o Incentivos) y a partir de ahí navegá por m
 - Procesar donador (dispara la evaluación de su misión en curso).
 - Consultar el progreso (misión en curso + insignias) de un donador.
 
+**Consultas** (modelo de lectura):
+- Ficha de un donador.
+- Necesidades urgentes sin cubrir, con entidad, faltante y stock por depósito.
+
 ## Diseño
 
 - `DonaTrackBot` — único punto de entrada de Telegram (`onUpdateReceived`), arma menús, valida

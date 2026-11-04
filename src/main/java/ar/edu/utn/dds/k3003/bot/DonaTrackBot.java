@@ -10,6 +10,7 @@ import ar.edu.utn.dds.k3003.bot.client.DonacionesClient;
 import ar.edu.utn.dds.k3003.bot.client.DonadoresClient;
 import ar.edu.utn.dds.k3003.bot.client.IncentivosClient;
 import ar.edu.utn.dds.k3003.bot.client.LogisticaClient;
+import ar.edu.utn.dds.k3003.bot.handler.ConsultasHandler;
 import ar.edu.utn.dds.k3003.bot.handler.DonacionesHandler;
 import ar.edu.utn.dds.k3003.bot.handler.DonadoresHandler;
 import ar.edu.utn.dds.k3003.bot.handler.IncentivosHandler;
@@ -50,6 +51,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
     private final DonacionesHandler donacionesHandler;
     private final LogisticaHandler logisticaHandler;
     private final IncentivosHandler incentivosHandler;
+    private final ConsultasHandler consultasHandler;
     // Clientes HTTP inyectados acá (además de en los handlers) para el chequeo de existencia de
     // §verificarExistencia: ese chequeo es transversal a los 4 módulos (ej. "ID del producto
     // solicitado" se pide en el módulo Donadores pero el producto vive en Donaciones), así que no
@@ -67,6 +69,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             DonacionesHandler donacionesHandler,
             LogisticaHandler logisticaHandler,
             IncentivosHandler incentivosHandler,
+            ConsultasHandler consultasHandler,
             DonadoresClient donadoresClient,
             DonacionesClient donacionesClient,
             LogisticaClient logisticaClient,
@@ -78,6 +81,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
         this.donacionesHandler = donacionesHandler;
         this.logisticaHandler = logisticaHandler;
         this.incentivosHandler = incentivosHandler;
+        this.consultasHandler = consultasHandler;
         this.donadoresClient = donadoresClient;
         this.donacionesClient = donacionesClient;
         this.logisticaClient = logisticaClient;
@@ -202,6 +206,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             switch (campo) {
                 case "Edad":
                 case "Nivel de urgencia (1-10)":
+                case "Urgencia mínima (1-10)":
                 case "Cantidad objetivo":
                 case "Cantidad a donar":
                 case "Cantidad entregada":
@@ -309,6 +314,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
                 case DONACIONES -> donacionesHandler.ejecutar(accion, sesion);
                 case LOGISTICA -> logisticaHandler.ejecutar(accion, sesion);
                 case INCENTIVOS -> incentivosHandler.ejecutar(accion, sesion);
+                case CONSULTAS -> consultasHandler.ejecutar(accion, sesion);
             };
         } catch (RestClientResponseException e) {
             return nombreServicio(accion.getModulo()) + " respondió con error (" + e.getStatusCode().value() + "): "
@@ -324,6 +330,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             case DONACIONES -> "Donaciones";
             case LOGISTICA -> "Logística";
             case INCENTIVOS -> "Incentivos";
+            case CONSULTAS -> "Consultas";
         };
     }
 
@@ -344,7 +351,8 @@ public class DonaTrackBot extends TelegramLongPollingBot {
                 List.of(boton("Donadores y Entidades", "modulo:DONADORES")),
                 List.of(boton("Donaciones", "modulo:DONACIONES")),
                 List.of(boton("Logística", "modulo:LOGISTICA")),
-                List.of(boton("Incentivos", "modulo:INCENTIVOS"))));
+                List.of(boton("Incentivos", "modulo:INCENTIVOS")),
+                List.of(boton("Consultas", "modulo:CONSULTAS"))));
         enviarConTeclado(chatId, "¡Hola! Soy el bot de DonaTrack. ¿Con qué módulo querés hablar?", teclado);
     }
 
@@ -361,6 +369,7 @@ public class DonaTrackBot extends TelegramLongPollingBot {
             case DONACIONES -> menuDonaciones();
             case LOGISTICA -> menuLogistica();
             case INCENTIVOS -> menuIncentivos();
+            case CONSULTAS -> menuConsultas();
         };
         enviarConTeclado(chatId, "¿Qué querés hacer?", teclado);
     }
@@ -417,6 +426,12 @@ public class DonaTrackBot extends TelegramLongPollingBot {
                 List.of(boton("Asignar misión a donador", "accion:ASIGNAR_MISION")),
                 List.of(boton("Procesar donador", "accion:PROCESAR_DONADOR")),
                 List.of(boton("Consultar progreso de un donador", "accion:CONSULTAR_PROGRESO"))));
+    }
+
+    private InlineKeyboardMarkup menuConsultas() {
+        return new InlineKeyboardMarkup(List.of(
+                List.of(boton("Ficha de un donador", "accion:FICHA_DONADOR")),
+                List.of(boton("Necesidades urgentes", "accion:NECESIDADES_URGENTES"))));
     }
 
     private InlineKeyboardButton boton(String texto, String callbackData) {
