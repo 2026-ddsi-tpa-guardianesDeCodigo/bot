@@ -19,7 +19,8 @@ instancia presencial, tiene que estar corriendo en una sola máquina.
 - Java 21, Maven.
 - Un bot creado con [`@BotFather`](https://t.me/BotFather) en Telegram (comando `/newbot`), que
   da un token y un username.
-- Los 4 backends corriendo (local o en Render) — con cold start de 30-90s si es Render free tier.
+- El API Gateway y los 4 backends corriendo (local o en Render) — con cold start de 30-90s si es
+  Render free tier.
 
 ## Variables de entorno
 
@@ -27,10 +28,7 @@ instancia presencial, tiene que estar corriendo en una sola máquina.
 |---|---|---|
 | `TELEGRAM_BOT_TOKEN` | Sí | Token que da `@BotFather`. **Nunca lo commitees** — quien tiene el token, tiene el bot. |
 | `TELEGRAM_BOT_USERNAME` | Sí | Username del bot (sin `@`), el que elegiste al crearlo. |
-| `DONADORES_URL` | No | URL de Donadores y Entidades. Default: el deploy de Render. |
-| `DONACIONES_URL` | No | URL de Donaciones. Default: el deploy de Render. |
-| `LOGISTICA_URL` | No | URL de Logística. Default: el deploy de Render. |
-| `INCENTIVOS_URL` | No | URL de Incentivos. Default: el deploy de Render. |
+| `GATEWAY_URL` | No | URL del API Gateway. Default: el deploy de Render. |
 | `PORT` | No | Puerto del bot (solo expone `/actuator/health`, no hay endpoints propios). Default `8085`. |
 
 ## Correr
@@ -39,10 +37,7 @@ instancia presencial, tiene que estar corriendo en una sola máquina.
 export TELEGRAM_BOT_TOKEN=tu_token
 export TELEGRAM_BOT_USERNAME=tu_bot_username
 # opcionales, si querés probar contra local en vez de Render:
-export DONADORES_URL=http://localhost:8081
-export DONACIONES_URL=http://localhost:8083
-export LOGISTICA_URL=http://localhost:8084
-export INCENTIVOS_URL=http://localhost:8082
+export GATEWAY_URL=http://localhost:8087
 mvn spring-boot:run
 ```
 

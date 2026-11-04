@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Levanta el bot local cargando las credenciales desde .env (gitignored, nunca se commitea).
-# Las URLs de los 4 backends se pueden pisar antes de llamar a este script, p. ej.:
-#   DONADORES_URL=http://localhost:8081 ./correr-local.sh
+# La URL del gateway se puede pisar antes de llamar a este script, p. ej.:
+#   GATEWAY_URL=http://localhost:8087 ./correr-local.sh
 set -euo pipefail
 cd "$(dirname "$0")"
 
